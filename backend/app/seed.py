@@ -1,4 +1,65 @@
+import json
+
 from app.db import connect
+
+
+def _seed_jobs() -> list[tuple]:
+    return [
+        (
+            "ingest_orders",
+            "ingest_orders.json",
+            "[]",
+            1,
+            1,
+            "无依赖：写出订单水位",
+        ),
+        (
+            "dim_customer",
+            "dim_customer.json",
+            "[]",
+            1,
+            1,
+            "无依赖：写出客户维表水位",
+        ),
+        (
+            "fact_order_daily",
+            "fact_order_daily.json",
+            json.dumps(
+                [
+                    {"name": "ingest_orders", "kind": "hard"},
+                    {"name": "dim_customer", "kind": "hard"},
+                ]
+            ),
+            1,
+            1,
+            "硬依赖两路上游成功后才执行",
+        ),
+    ]
+
+
+def _migrate_depends_on_json(conn) -> None:
+    """Upgrade legacy plain-name dependency lists to typed edges."""
+    for row in conn.execute("SELECT id, depends_on_json FROM jobs").fetchall():
+        raw = row["depends_on_json"] or "[]"
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            payload = []
+        if not isinstance(payload, list):
+            payload = []
+        edges = []
+        for item in payload:
+            if isinstance(item, str):
+                edges.append({"name": item, "kind": "hard"})
+            elif isinstance(item, dict) and item.get("name"):
+                kind = item.get("kind") if item.get("kind") in ("hard", "soft") else "hard"
+                edges.append({"name": item["name"], "kind": kind})
+        encoded = json.dumps(edges, ensure_ascii=False)
+        if encoded != raw:
+            conn.execute(
+                "UPDATE jobs SET depends_on_json=? WHERE id=?",
+                (encoded, row["id"]),
+            )
 
 
 def init_db():
@@ -43,38 +104,12 @@ def init_db():
         """
     )
     if conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"] == 0:
-        jobs = [
-            (
-                "ingest_orders",
-                "ingest_orders.json",
-                "[]",
-                1,
-                1,
-                "无依赖：写出订单水位",
-            ),
-            (
-                "dim_customer",
-                "dim_customer.json",
-                "[]",
-                1,
-                1,
-                "无依赖：写出客户维表水位",
-            ),
-            (
-                "fact_order_daily",
-                "fact_order_daily.json",
-                '["ingest_orders","dim_customer"]',
-                1,
-                1,
-                "依赖两路上游成功后才执行（底座仅查上游成功）",
-            ),
-        ]
         conn.executemany(
             """
             INSERT INTO jobs(name, fixture_path, depends_on_json, max_attempts, enabled, note)
             VALUES (?,?,?,?,?,?)
             """,
-            jobs,
+            _seed_jobs(),
         )
         for row in conn.execute("SELECT id FROM jobs").fetchall():
             conn.execute(
@@ -85,5 +120,6 @@ def init_db():
             "INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)",
             ("default_max_attempts", "1"),
         )
+    _migrate_depends_on_json(conn)
     conn.commit()
     conn.close()

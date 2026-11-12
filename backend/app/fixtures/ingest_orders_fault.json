@@ -1,0 +1,6 @@
+{
+  "watermark_ts": "2026-11-10T18:00:00Z",
+  "fail": true,
+  "fail_reason": "upstream source unavailable (demo fault fixture)",
+  "rows": []
+}

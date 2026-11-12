@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.db import connect
 from app.repositories import orchestrations as orch_repo
-from app.services.orchestrate_service import run_orchestration
+from app.services.orchestrate_service import reconcile_orchestration, run_orchestration
 
 router = APIRouter(tags=["orchestrations"])
 
@@ -26,6 +26,14 @@ def get_orchestration(orch_id: int):
         return row
     finally:
         conn.close()
+
+
+@router.get("/orchestrations/{orch_id}/reconcile")
+def reconcile(orch_id: int):
+    result = reconcile_orchestration(orch_id)
+    if result is None:
+        raise HTTPException(404, "not found")
+    return result
 
 
 @router.post("/orchestrations")

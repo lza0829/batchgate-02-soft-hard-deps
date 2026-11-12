@@ -18,6 +18,12 @@ def load_fixture(path: Path) -> dict[str, Any]:
 
 def run_fixture_job(path: Path) -> dict[str, Any]:
     payload = load_fixture(path)
+    # Fault fixtures let the local demo exercise failed / blocked paths without
+    # touching real data sources.
+    if payload.get("fail"):
+        raise RuntimeError(
+            str(payload.get("fail_reason") or "fixture marked as failing")
+        )
     return {
         "ok": True,
         "watermark_ts": payload["watermark_ts"],
